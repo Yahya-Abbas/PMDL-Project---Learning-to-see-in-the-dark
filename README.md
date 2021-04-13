@@ -5,8 +5,6 @@ This is a Tensorflow implementation of Learning to See in the Dark in CVPR 2018,
 [Project Website](http://cchen156.github.io/SID.html)<br/>
 [Paper](http://cchen156.github.io/paper/18CVPR_SID.pdf)<br/>
 
-![teaser](images/fig1.png "Sample inpainting results on held-out images")
-
 This code includes the default model for training and testing on the See-in-the-Dark (SID) dataset. 
 
 

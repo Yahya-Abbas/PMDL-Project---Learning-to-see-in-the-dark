@@ -54,7 +54,8 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
     return deconv_output
 
 
-def network(input):
+# define the first encoder that takes the raw image with simple preprocessing
+def first_encoder(input):
     conv1 = slim.conv2d(input, 32, [3, 3], rate=1,
                         activation_fn=lrelu, scope='g_conv1_1')
     conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1,
@@ -84,6 +85,44 @@ def network(input):
     conv5 = slim.conv2d(
         conv5, 512, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv5_2')
 
+    return conv5
+
+
+# define the encoder after the traditional algorithm pipeline
+def second_encoder(input):
+    conv1 = slim.conv2d(input, 32, [3, 3], rate=1,
+                        activation_fn=lrelu, scope='g_conv1_1')
+    conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1,
+                        activation_fn=lrelu, scope='g_conv1_2')
+    pool1 = slim.max_pool2d(conv1, [2, 2], padding='SAME')
+
+    conv2 = slim.conv2d(pool1, 64, [3, 3], rate=1,
+                        activation_fn=lrelu, scope='g_conv2_1')
+    conv2 = slim.conv2d(conv2, 64, [3, 3], rate=1,
+                        activation_fn=lrelu, scope='g_conv2_2')
+    pool2 = slim.max_pool2d(conv2, [2, 2], padding='SAME')
+
+    conv3 = slim.conv2d(
+        pool2, 128, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv3_1')
+    conv3 = slim.conv2d(
+        conv3, 128, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv3_2')
+    pool3 = slim.max_pool2d(conv3, [2, 2], padding='SAME')
+
+    conv4 = slim.conv2d(
+        pool3, 256, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv4_1')
+    conv4 = slim.conv2d(
+        conv4, 256, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv4_2')
+    pool4 = slim.max_pool2d(conv4, [2, 2], padding='SAME')
+
+    conv5 = slim.conv2d(
+        pool4, 512, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv5_1')
+    conv5 = slim.conv2d(
+        conv5, 512, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv5_2')
+
+    return conv5
+
+
+def decoder(latent_space):
     up6 = upsample_and_concat(conv5, conv4, 256, 512)
     conv6 = slim.conv2d(up6, 256, [3, 3], rate=1,
                         activation_fn=lrelu, scope='g_conv6_1')
@@ -111,10 +150,24 @@ def network(input):
     conv10 = slim.conv2d(
         conv9, 12, [1, 1], rate=1, activation_fn=None, scope='g_conv10')
     out = tf.depth_to_space(conv10, 2)
+
+    return out
+
+
+def network(raw_input_image, processed_input_image):
+
+    first_encoder_output = first_encoder(raw_input_image)
+
+    second_encoder_output = second_encoder(processed_input_image)
+
+    # Here I give the decoder only the first encoder output, should be changed to the concatenation of
+    # Both encoder outputs
+    decoder_output = decoder(first_encoder_output)
+
     #print('model defined ')
     # print('')
     # print('')
-    return out
+    return decoder_output
 
 
 training_loss = []

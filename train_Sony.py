@@ -123,7 +123,7 @@ def second_encoder(input):
 
 
 def decoder(latent_space):
-    up6 = upsample_and_concat(conv5, conv4, 256, 512)
+    up6 = upsample_and_concat(conv5, conv4, 256, 1024)
     conv6 = slim.conv2d(up6, 256, [3, 3], rate=1,
                         activation_fn=lrelu, scope='g_conv6_1')
     conv6 = slim.conv2d(
@@ -160,9 +160,13 @@ def network(raw_input_image, processed_input_image):
 
     second_encoder_output = second_encoder(processed_input_image)
 
+    concatenated_latent_space = tf.concat(
+        [first_encoder_output, second_encoder_output], -1)
+    #concatenated_latent_space.set_shape([None, None, None, output_channels * 2])
+
     # Here I give the decoder only the first encoder output, should be changed to the concatenation of
     # Both encoder outputs
-    decoder_output = decoder(first_encoder_output)
+    decoder_output = decoder(concatenated_latent_space)
 
     #print('model defined ')
     # print('')

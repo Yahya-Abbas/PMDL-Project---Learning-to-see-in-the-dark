@@ -12,16 +12,17 @@ import glob
 import matplotlib.pyplot as plt
 import scipy.misc
 from PIL import Image
+import cv2
 
-input_dir = './dataset/Sony/train/'
-gt_dir = './dataset/Sony/gt/'
-checkpoint_dir = './result_Sony/'
-result_dir = './result_Sony/'
+input_dir = './dataset/jpg_images/train/'
+gt_dir = './dataset/jpg_images/gt/'
+checkpoint_dir = './results_jpg/'
+result_dir = './results_jpg/'
 
 # get train IDs
-train_fns = glob.glob(gt_dir + '0*.ARW')
+train_fns = glob.glob(gt_dir + '0*.jpg')
 train_ids = [int(os.path.basename(train_fn)[0:5]) for train_fn in train_fns]
-validation_fns = glob.glob(gt_dir + '2*.ARW')
+validation_fns = glob.glob(gt_dir + '2*.jpg')
 validation_ids = [int(os.path.basename(validation_fn)[0:5])
                   for validation_fn in validation_fns]
 
@@ -114,9 +115,6 @@ def network(input):
     conv10 = slim.conv2d(
         conv9, 12, [1, 1], rate=1, activation_fn=None, scope='g_conv10')
     out = tf.depth_to_space(conv10, 2)
-    #print('model defined ')
-    # print('')
-    # print('')
     return out
 
 
@@ -124,27 +122,9 @@ training_loss = []
 validation_loss = []
 
 
-def pack_raw(raw):
-    # pack Bayer image to 4 channels
-    im = raw.raw_image_visible.astype(np.float32)
-    im = np.maximum(im - 512, 0) / (16383 - 512)  # subtract the black level
-
-    im = np.expand_dims(im, axis=2)
-    img_shape = im.shape
-    H = img_shape[0]
-    W = img_shape[1]
-
-    out = np.concatenate((im[0:H:2, 0:W:2, :],
-                          im[0:H:2, 1:W:2, :],
-                          im[1:H:2, 1:W:2, :],
-                          im[1:H:2, 0:W:2, :]), axis=2)
-
-    return out
-
-
 sess = tf.Session()
 
-in_image = tf.placeholder(tf.float32, [None, None, None, 4])
+in_image = tf.placeholder(tf.float32, [None, None, None, 3])
 gt_image = tf.placeholder(tf.float32, [None, None, None, 3])
 out_image = network(in_image)
 
@@ -160,25 +140,22 @@ G_opt = tf.train.AdamOptimizer(learning_rate=lr).minimize(G_loss)
 saver = tf.train.Saver()
 sess.run(tf.global_variables_initializer())
 ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
-#print (checkpoint_dir)
 
 if ckpt:
     print('loaded ' + ckpt.model_checkpoint_path)
     saver.restore(sess, ckpt.model_checkpoint_path)
 
-# Raw data takes long time to load. Keep them in memory after loaded.
-gt_images = [None] * 60
-
+# Keep images in memory after loading to save time.
+gt_images = [None] * 135
 input_images = {}
 input_images['300'] = [None] * 60
 input_images['250'] = [None] * 60
 input_images['100'] = [None] * 60
 
 # Losses
-g_loss = np.zeros((135, 1))
-val_loss = np.zeros((15, 1))
+g_loss = np.zeros((1000, 1))
+val_loss = np.zeros((1000, 1))
 
-# print(result_dir)
 
 allfolders = glob.glob(result_dir + '*0')
 lastepoch = 0
@@ -193,7 +170,7 @@ for epoch in range(lastepoch, 4001):
         continue
     cnt = 0  # counter of the images processes in this epoch
 
-    if epoch > 1200:  # after 30 epochs decrease the learning rate to move slower and avoid overshooting the minimum
+    if epoch > 500:  # after 30 epochs decrease the learning rate to move slower and avoid overshooting the minimum
         learning_rate = 1e-5
 
     losses = []
@@ -202,12 +179,11 @@ for epoch in range(lastepoch, 4001):
         # get the path from image id
 
         train_id = train_ids[ind]
-        in_files = glob.glob(input_dir + '%05d_00*.ARW' % train_id)
-        #print (in_files)
+        in_files = glob.glob(input_dir + '%05d_00*.jpg' % train_id)
         in_path = in_files[np.random.random_integers(0, len(in_files) - 1)]
         in_fn = os.path.basename(in_path)
 
-        gt_files = glob.glob(gt_dir + '%05d_00*.ARW' % train_id)
+        gt_files = glob.glob(gt_dir + '%05d_00*.jpg' % train_id)
         gt_path = gt_files[0]
         gt_fn = os.path.basename(gt_path)
         in_exposure = float(in_fn[9:-5])
@@ -218,24 +194,23 @@ for epoch in range(lastepoch, 4001):
         cnt += 1
 
         if (ind >= len(input_images[str(ratio)[0:3]])) or (input_images[str(ratio)[0:3]][ind] is None):
-            raw = rawpy.imread(in_path)
 
-            gt_raw = rawpy.imread(gt_path)
-            im = gt_raw.postprocess(
-                use_camera_wb=True, half_size=False, no_auto_bright=True, output_bps=16)
+            im = cv2.imread(in_path)
+            im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+
+            gt_im = cv2.imread(gt_path)
+            gt_im = cv2.cvtColor(gt_im, cv2.COLOR_BGR2RGB)
 
             if ind < len(input_images[str(ratio)[0:3]]):
                 input_images[str(ratio)[0:3]][ind] = np.expand_dims(
-                    pack_raw(raw), axis=0) * ratio
+                    im, axis=0) * ratio
 
                 gt_images[ind] = np.expand_dims(
-                    np.float32(im / 65535.0), axis=0)
+                    np.float32(gt_im/255.0), axis=0)
             else:
-                desk_input_image = np.expand_dims(
-                    pack_raw(raw), axis=0) * ratio
+                desk_input_image = np.expand_dims(im, axis=0) * ratio
 
-                desk_gt_image = np.expand_dims(
-                    np.float32(im / 65535.0), axis=0)
+                desk_gt_image = np.expand_dims(np.float32(gt_im/255.0), axis=0)
 
             #print('rawpy processed')
 
@@ -288,7 +263,8 @@ for epoch in range(lastepoch, 4001):
                 os.makedirs(result_dir + '%04d' % epoch)
             temp = np.concatenate(
                 (gt_patch[0, :, :, :], output[0, :, :, :]), axis=1)
-            scipy.misc.toimage(temp * 255, high=255, low=0, cmin=0, cmax=255).save(
+            #scipy.misc.toimage(temp * 255, high=255, low=0, cmin=0, cmax=255).save(result_dir + '%04d/%05d_00_train_%d.jpg' % (epoch, train_id, ratio))
+            Image.fromarray((temp*255).astype('uint8'), mode='RGB').save(
                 result_dir + '%04d/%05d_00_train_%d.jpg' % (epoch, train_id, ratio))
             #Image.fromarray((temp*255).astype('uint8'), mode='L').convert('RGB').save(result_dir + '%04d/%05d_00_train_%d.jpg' % (epoch, train_id, ratio))
 
@@ -296,12 +272,11 @@ for epoch in range(lastepoch, 4001):
         # get the path from image id
 
         val_id = validation_ids[ind]
-        in_filesV = glob.glob(input_dir + '%05d_00*.ARW' % val_id)
-        #print (in_files)
+        in_filesV = glob.glob(input_dir + '%05d_00*.jpg' % val_id)
         in_pathV = in_filesV[np.random.random_integers(0, len(in_filesV) - 1)]
         in_fn = os.path.basename(in_pathV)
 
-        gt_files = glob.glob(gt_dir + '%05d_00*.ARW' % val_id)
+        gt_files = glob.glob(gt_dir + '%05d_00*.jpg' % val_id)
         gt_path = gt_files[0]
         gt_fn = os.path.basename(gt_path)
         in_exposure = float(in_fn[9:-5])
@@ -311,22 +286,15 @@ for epoch in range(lastepoch, 4001):
         st = time.time()
         cnt += 1
 
-        raw = rawpy.imread(in_pathV)
+        val_im = cv2.imread(in_pathV)
+        val_im = cv2.cvtColor(val_im, cv2.COLOR_BGR2RGB)
 
-        gt_raw = rawpy.imread(gt_path)
-        im = gt_raw.postprocess(
-            use_camera_wb=True, half_size=False, no_auto_bright=True, output_bps=16)
+        gt_im = cv2.imread(gt_path)
+        gt_im = cv2.cvtColor(gt_im, cv2.COLOR_BGR2RGB)
 
-        val_input_image = np.expand_dims(
-            pack_raw(raw), axis=0) * ratio
+        val_input_image = np.expand_dims(val_im, axis=0) * ratio
 
-        val_gt_image = np.expand_dims(
-            np.float32(im / 65535.0), axis=0)
-
-        #print('rawpy processed')
-
-        H = val_input_image.shape[1]
-        W = val_input_image.shape[2]
+        val_gt_image = np.expand_dims(np.float32(gt_im/255.0), axis=0)
 
         #print('session starts')
         val_output_image, curr_val_loss = sess.run([out_image, G_loss],
@@ -342,7 +310,8 @@ for epoch in range(lastepoch, 4001):
                 os.makedirs(result_dir + '%04d' % epoch)
             temp = np.concatenate(
                 (val_gt_image[0, :, :, :], val_output_image[0, :, :, :]), axis=1)
-            scipy.misc.toimage(temp * 255, high=255, low=0, cmin=0, cmax=255).save(
+            #scipy.misc.toimage(temp * 255, high=255, low=0, cmin=0, cmax=255).save(result_dir + '%04d/%05d_00_validation_%d.jpg' % (epoch, val_id, ratio))
+            Image.fromarray((temp*255).astype('uint8'), mode='RGB').save(
                 result_dir + '%04d/%05d_00_validation_%d.jpg' % (epoch, val_id, ratio))
 
     # Compute epoch loss and graph the plot if save epoch

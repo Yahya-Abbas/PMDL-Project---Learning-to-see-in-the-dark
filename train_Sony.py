@@ -67,7 +67,7 @@ def trad_pipeline(raw_image, ratio=100):
     index_2 = np.where(colors[pattern] == colors[2])
     index_3 = np.where(colors[pattern] == colors[3])
 
-    # apply white balance, normalize white balance coefficients to the 2nd coefficient, which is ususally the coefficient for green
+    # apply white balance, normalize white balance coefficients to the 2nd coefficient, which is usually the coefficient for green
     wb_c = raw_image.camera_whitebalance
     wb = np.zeros((2, 2), dtype=np.double)
     wb[index_0] = wb_c[0] / wb_c[1]
@@ -384,8 +384,6 @@ for epoch in range(lastepoch, 4001):
 
                 desk_gt_image = np.expand_dims(
                     np.float32(im / 65535.0), axis=0)
-
-            #print('rawpy processed')
 
         # crop
 

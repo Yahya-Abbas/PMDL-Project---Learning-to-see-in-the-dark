@@ -13,17 +13,20 @@ import matplotlib.pyplot as plt
 import scipy.misc
 from PIL import Image
 
-input_dir = './dataset/Sony/short/'
-gt_dir = './dataset/Sony/long/'
+input_dir = './dataset/Sony/train/'
+gt_dir = './dataset/Sony/gt/'
 checkpoint_dir = './result_Sony/'
 result_dir = './result_Sony/'
 
 # get train IDs
 train_fns = glob.glob(gt_dir + '0*.ARW')
 train_ids = [int(os.path.basename(train_fn)[0:5]) for train_fn in train_fns]
+validation_fns = glob.glob(gt_dir + '2*.ARW')
+validation_ids = [int(os.path.basename(validation_fn)[0:5])
+                  for validation_fn in validation_fns]
 
 ps = 512  # patch size for training
-save_freq = 500
+save_freq = 50
 
 DEBUG = 0
 if DEBUG == 1:
@@ -118,6 +121,7 @@ def network(input):
 
 
 training_loss = []
+validation_loss = []
 
 
 def pack_raw(raw):
@@ -163,22 +167,24 @@ if ckpt:
     saver.restore(sess, ckpt.model_checkpoint_path)
 
 # Raw data takes long time to load. Keep them in memory after loaded.
-gt_images = [None] * 120
+gt_images = [None] * 60
 
 input_images = {}
-input_images['300'] = [None] * 120
-input_images['250'] = [None] * 120
-input_images['100'] = [None] * 120
-# why is this 5000 when all training images are 1865 image??
-g_loss = np.zeros((5000, 1))
+input_images['300'] = [None] * 60
+input_images['250'] = [None] * 60
+input_images['100'] = [None] * 60
+
+# Losses
+g_loss = np.zeros((135, 1))
+val_loss = np.zeros((15, 1))
 
 # print(result_dir)
-#allfolders = glob.glob(result_dir + '*0')
+
+allfolders = glob.glob(result_dir + '*0')
 lastepoch = 0
 
-
-# for folder in allfolders:
-#    lastepoch = np.maximum(lastepoch, int(folder[-4:]))
+for folder in allfolders:
+    lastepoch = np.maximum(lastepoch, int(folder[-4:]))
 
 learning_rate = 1e-4
 for epoch in range(lastepoch, 4001):
@@ -274,8 +280,8 @@ for epoch in range(lastepoch, 4001):
         #print('output calculated')
         g_loss[ind] = G_current
 
-        print("%d %d Loss=%.3f Time=%.3f" %
-              (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st))
+        print("Epoch: %d, Training Loss = %.3f, Time=%.3f" %
+              (epoch, np.mean(g_loss[np.where(g_loss)]), time.time() - st))
 
         if epoch % save_freq == 0:
             if not os.path.isdir(result_dir + '%04d' % epoch):
@@ -286,10 +292,76 @@ for epoch in range(lastepoch, 4001):
                 result_dir + '%04d/%05d_00_train_%d.jpg' % (epoch, train_id, ratio))
             #Image.fromarray((temp*255).astype('uint8'), mode='L').convert('RGB').save(result_dir + '%04d/%05d_00_train_%d.jpg' % (epoch, train_id, ratio))
 
-    # Compute epoch loss
+    for ind in np.random.permutation(len(validation_ids)):
+        # get the path from image id
+
+        val_id = validation_ids[ind]
+        in_filesV = glob.glob(input_dir + '%05d_00*.ARW' % val_id)
+        #print (in_files)
+        in_pathV = in_filesV[np.random.random_integers(0, len(in_filesV) - 1)]
+        in_fn = os.path.basename(in_pathV)
+
+        gt_files = glob.glob(gt_dir + '%05d_00*.ARW' % val_id)
+        gt_path = gt_files[0]
+        gt_fn = os.path.basename(gt_path)
+        in_exposure = float(in_fn[9:-5])
+        gt_exposure = float(gt_fn[9:-5])
+        ratio = min(gt_exposure / in_exposure, 300)
+
+        st = time.time()
+        cnt += 1
+
+        raw = rawpy.imread(in_pathV)
+
+        gt_raw = rawpy.imread(gt_path)
+        im = gt_raw.postprocess(
+            use_camera_wb=True, half_size=False, no_auto_bright=True, output_bps=16)
+
+        val_input_image = np.expand_dims(
+            pack_raw(raw), axis=0) * ratio
+
+        val_gt_image = np.expand_dims(
+            np.float32(im / 65535.0), axis=0)
+
+        #print('rawpy processed')
+
+        H = val_input_image.shape[1]
+        W = val_input_image.shape[2]
+
+        #print('session starts')
+        val_output_image, curr_val_loss = sess.run([out_image, G_loss],
+                                                   feed_dict={in_image: val_input_image, gt_image: val_gt_image})
+
+        #print('Current validation loss is {}'.format(curr_val_loss))
+        val_loss[ind] = curr_val_loss
+        #print('Validation loss array is {}'.format(val_loss))
+        val_output_image = np.minimum(np.maximum(val_output_image, 0), 1)
+
+        if epoch % save_freq == 0:
+            if not os.path.isdir(result_dir + '%04d' % epoch):
+                os.makedirs(result_dir + '%04d' % epoch)
+            temp = np.concatenate(
+                (val_gt_image[0, :, :, :], val_output_image[0, :, :, :]), axis=1)
+            scipy.misc.toimage(temp * 255, high=255, low=0, cmin=0, cmax=255).save(
+                result_dir + '%04d/%05d_00_validation_%d.jpg' % (epoch, val_id, ratio))
+
+    # Compute epoch loss and graph the plot if save epoch
     training_loss.append(np.mean(g_loss[np.where(g_loss)]))
-    # training_loss.append(np.array(losses).mean())
-    # training_loss.append(losses)
+    validation_loss.append(np.mean(val_loss[np.where(val_loss)]))
+    print("Epoch: %d, Training Loss = %.3f, Validation Loss = %0.3f, Time=%.3f" %
+          (epoch, training_loss[-1], validation_loss[-1], time.time() - st))
+
+    if epoch % save_freq == 0:
+        plt.figure()
+        plt.plot(range(1, len(training_loss)+1), training_loss, 'r--')
+        plt.plot(range(1, len(validation_loss)+1),
+                 validation_loss, 'b-')
+        plt.legend(['Training Loss', 'Validation Loss'])
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        #plt.xticks(range(1, len(training_loss)+1))
+        plt.savefig('./plots/epoch%04d_losses.png' % (epoch+1))
+
     saver.save(sess, checkpoint_dir + 'model.ckpt')
 
 plt.figure()
@@ -297,4 +369,5 @@ plt.plot(range(1, len(range(lastepoch, 4001))+1), training_loss, 'r--')
 plt.legend(['Training Loss'])
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
+plt.xticks(range(1, len(range(lastepoch, 4001))+1))
 plt.show()

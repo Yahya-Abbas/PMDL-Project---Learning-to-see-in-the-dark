@@ -28,7 +28,6 @@ train_ids = [int(os.path.basename(train_fn)[0:5]) for train_fn in train_fns]
 validation_fns = glob.glob(gt_dir + '2*.ARW')
 validation_ids = [int(os.path.basename(validation_fn)[0:5])
                   for validation_fn in validation_fns]
-
 ps = 512  # patch size for training
 save_freq = 50
 
@@ -67,7 +66,7 @@ def trad_pipeline(raw_image, ratio=100):
     index_2 = np.where(colors[pattern] == colors[2])
     index_3 = np.where(colors[pattern] == colors[3])
 
-    # apply white balance, normalize white balance coefficients to the 2nd coefficient, which is usually the coefficient for green
+    # apply white balance, normalize white balance coefficients to the 2nd coefficient, which is ususally the coefficient for green
     wb_c = raw_image.camera_whitebalance
     wb = np.zeros((2, 2), dtype=np.double)
     wb[index_0] = wb_c[0] / wb_c[1]
@@ -159,7 +158,7 @@ def first_encoder(input):
 
 
 # define the encoder after the traditional algorithm pipeline
-def second_encoder(input):
+""" def second_encoder(input):
     conv1 = slim.conv2d(input, 32, [3, 3], rate=1,
                         activation_fn=lrelu, scope='g2_conv1_1')
     conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1,
@@ -189,7 +188,7 @@ def second_encoder(input):
     conv5 = slim.conv2d(
         conv5, 512, [3, 3], rate=1, activation_fn=lrelu, scope='g2_conv5_2')
 
-    return conv5
+    return conv5 """
 
 
 def upsample_and_concat(x1, x2, output_channels, in_channels):
@@ -206,8 +205,9 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 
 
 # We will need to change the arguments given to the upsample_and_concat function
-def decoder(latent_space, first_encoder_output):
-    up6 = upsample_and_concat(latent_space, first_encoder_output[3], 256, 1024)
+def decoder(first_encoder_output):
+    up6 = upsample_and_concat(
+        first_encoder_output[4], first_encoder_output[3], 256, 512)
     conv6 = slim.conv2d(up6, 256, [3, 3], rate=1,
                         activation_fn=lrelu, scope='g_conv6_1')
     conv6 = slim.conv2d(
@@ -238,19 +238,19 @@ def decoder(latent_space, first_encoder_output):
     return out
 
 
-def network(raw_input_image, tradPipeline_input_image):
+def network(tradPipeline_input_image):
 
-    first_encoder_output = first_encoder(raw_input_image)
+    first_encoder_output = first_encoder(tradPipeline_input_image)
 
-    second_encoder_output = second_encoder(tradPipeline_input_image)
+    #second_encoder_output = second_encoder(tradPipeline_input_image)
 
-    concatenated_latent_space = tf.concat(
-        [first_encoder_output[4], second_encoder_output], -1)
+    """ concatenated_latent_space = tf.concat(
+        [first_encoder_output[4], second_encoder_output], -1) """
     #concatenated_latent_space.set_shape([None, None, None, output_channels * 2])
 
     # Here I give the decoder only the first encoder output, should be changed to the concatenation of
     # Both encoder outputs
-    decoder_output = decoder(concatenated_latent_space, first_encoder_output)
+    decoder_output = decoder(first_encoder_output)
 
     #print('model defined ')
     # print('')
@@ -282,11 +282,11 @@ def pack_raw(raw):
 
 sess = tf.Session()
 
-in_image = tf.placeholder(tf.float32, [None, None, None, 4])
+#in_image = tf.placeholder(tf.float32, [None, None, None, 4])
 tradPipeline_image = tf.placeholder(tf.float32, [None, None, None, 3])
 gt_image = tf.placeholder(tf.float32, [None, None, None, 3])
 
-out_image = network(in_image, tradPipeline_image)
+out_image = network(tradPipeline_image)
 
 #G_loss_PSNR = tf.reduce_mean(20*log10(gt_image)-10*log10(tf.abs((out_image - gt_image))))
 G_loss_MSE = tf.reduce_mean(out_image - gt_image)
@@ -309,12 +309,12 @@ if ckpt:
 # Raw data takes long time to load. Keep them in memory after loaded.
 gt_images = [None] * 60
 
-tradPipeline_images = [None] * 60
+#tradPipeline_images = [None] * 60
 
-input_images = {}
-input_images['300'] = [None] * 60
-input_images['250'] = [None] * 60
-input_images['100'] = [None] * 60
+tradPipeline_images = {}
+tradPipeline_images['300'] = [None] * 60
+tradPipeline_images['250'] = [None] * 60
+tradPipeline_images['100'] = [None] * 60
 
 # Losses
 g_loss = np.zeros((120, 1))
@@ -359,71 +359,71 @@ for epoch in range(lastepoch, 4001):
 
         cnt += 1
 
-        if (ind >= len(input_images[str(ratio)[0:3]])) or (input_images[str(ratio)[0:3]][ind] is None):
+        if (ind >= len(tradPipeline_images[str(ratio)[0:3]])) or (tradPipeline_images[str(ratio)[0:3]][ind] is None):
             raw = rawpy.imread(in_path)
 
             gt_raw = rawpy.imread(gt_path)
             im = gt_raw.postprocess(
                 use_camera_wb=True, half_size=False, no_auto_bright=True, output_bps=16)
 
-            if ind < len(input_images[str(ratio)[0:3]]):
-                input_images[str(ratio)[0:3]][ind] = np.expand_dims(
-                    pack_raw(raw), axis=0) * ratio
+            if ind < len(tradPipeline_images[str(ratio)[0:3]]):
+                tradPipeline_images[str(ratio)[0:3]][ind] = np.expand_dims(
+                    trad_pipeline(raw, ratio=ratio), axis=0)
 
-                tradPipeline_images[ind] = np.expand_dims(
-                    trad_pipeline(raw, ratio=100), axis=0)
+                #tradPipeline_images[ind] = np.expand_dims(trad_pipeline(raw, ratio=ratio), axis=0)
 
                 gt_images[ind] = np.expand_dims(
                     np.float32(im / 65535.0), axis=0)
             else:
-                desk_input_image = np.expand_dims(
-                    pack_raw(raw), axis=0) * ratio
+                #desk_input_image = np.expand_dims(pack_raw(raw), axis=0) * ratio
 
                 desk_tradPipeline_image = np.expand_dims(
-                    trad_pipeline(raw, ratio=100), axis=0)
+                    trad_pipeline(raw, ratio=ratio), axis=0)
 
                 desk_gt_image = np.expand_dims(
                     np.float32(im / 65535.0), axis=0)
 
+            #print('rawpy processed')
+
         # crop
 
-        H = input_images[str(ratio)[0:3]][ind].shape[1] if ind < len(
-            input_images[str(ratio)[0:3]]) else desk_input_image.shape[1]
-        W = input_images[str(ratio)[0:3]][ind].shape[2] if ind < len(
-            input_images[str(ratio)[0:3]]) else desk_input_image.shape[2]
+        H = tradPipeline_images[str(ratio)[0:3]][ind].shape[1] if ind < len(
+            tradPipeline_images[str(ratio)[0:3]]) else desk_tradPipeline_image.shape[1]
+        W = tradPipeline_images[str(ratio)[0:3]][ind].shape[2] if ind < len(
+            tradPipeline_images[str(ratio)[0:3]]) else desk_tradPipeline_image.shape[2]
         #print('images cropped')
 
         xx = np.random.randint(0, W - ps)
         yy = np.random.randint(0, H - ps)
-        input_patch = input_images[str(ratio)[0:3]][ind][:, yy:yy + ps, xx:xx + ps, :] if ind < len(
-            input_images[str(ratio)[0:3]]) else desk_input_image[:, yy:yy + ps, xx:xx + ps, :]
+        tradPipeline_patch = tradPipeline_images[str(ratio)[0:3]][ind][:, yy:yy + ps, xx:xx + ps, :] if ind < len(
+            tradPipeline_images[str(ratio)[0:3]]) else desk_tradPipeline_image[:, yy:yy + ps, xx:xx + ps, :]
 
-        tradPipeline_patch = tradPipeline_images[ind][:, yy:yy + ps, xx:xx + ps, :] if ind < len(
-            input_images[str(ratio)[0:3]]) else desk_tradPipeline_image[:, yy:yy + ps, xx:xx + ps, :]
+        """ tradPipeline_patch = tradPipeline_images[ind][:, yy:yy + ps, xx:xx + ps, :] if ind < len(
+            input_images[str(ratio)[0:3]]) else desk_tradPipeline_image[:, yy:yy + ps, xx:xx + ps, :] """
 
         #print('input images defined')
         gt_patch = gt_images[ind][:, yy * 2:yy * 2 + ps * 2, xx * 2:xx * 2 + ps * 2, :] if ind < len(
-            input_images[str(ratio)[0:3]]) else desk_gt_image[:, yy * 2:yy * 2 + ps * 2, xx * 2:xx * 2 + ps * 2, :]
+            tradPipeline_images[str(ratio)[0:3]]) else desk_gt_image[:, yy * 2:yy * 2 + ps * 2, xx * 2:xx * 2 + ps * 2, :]
         #print('gt images defined')
 
         if np.random.randint(2, size=1)[0] == 1:  # random flip
-            input_patch = np.flip(input_patch, axis=1)
+            #input_patch = np.flip(input_patch, axis=1)
             tradPipeline_patch = np.flip(tradPipeline_patch, axis=1)
             gt_patch = np.flip(gt_patch, axis=1)
         if np.random.randint(2, size=1)[0] == 1:
-            input_patch = np.flip(input_patch, axis=2)
+            #input_patch = np.flip(input_patch, axis=2)
             tradPipeline_patch = np.flip(tradPipeline_patch, axis=2)
             gt_patch = np.flip(gt_patch, axis=2)
         if np.random.randint(2, size=1)[0] == 1:  # random transpose
-            input_patch = np.transpose(input_patch, (0, 2, 1, 3))
+            #input_patch = np.transpose(input_patch, (0, 2, 1, 3))
             tradPipeline_patch = np.transpose(tradPipeline_patch, (0, 2, 1, 3))
             gt_patch = np.transpose(gt_patch, (0, 2, 1, 3))
 
-        input_patch = np.minimum(input_patch, 1.0)
+        tradPipeline_patch = np.minimum(tradPipeline_patch, 1.0)
 
         #print('session starts')
         _, G_current, output = sess.run([G_opt, G_loss, out_image],
-                                        feed_dict={in_image: input_patch, tradPipeline_image: tradPipeline_patch, gt_image: gt_patch, lr: learning_rate})
+                                        feed_dict={tradPipeline_image: tradPipeline_patch, gt_image: gt_patch, lr: learning_rate})
         output = np.minimum(np.maximum(output, 0), 1)
 
         #print('output calculated')
@@ -464,23 +464,19 @@ for epoch in range(lastepoch, 4001):
         im = gt_raw.postprocess(
             use_camera_wb=True, half_size=False, no_auto_bright=True, output_bps=16)
 
-        val_input_image = np.expand_dims(
-            pack_raw(raw), axis=0) * ratio
+        #val_input_image = np.expand_dims(pack_raw(raw), axis=0) * ratio
 
         val_tradPipeline_image = np.expand_dims(
-            trad_pipeline(raw, ratio), axis=0)
+            trad_pipeline(raw, ratio=ratio), axis=0)
 
         val_gt_image = np.expand_dims(
             np.float32(im / 65535.0), axis=0)
 
         #print('rawpy processed')
 
-        H = val_input_image.shape[1]
-        W = val_input_image.shape[2]
-
         #print('session starts')
         val_output_image, curr_val_loss = sess.run([out_image, G_loss],
-                                                   feed_dict={in_image: val_input_image, tradPipeline_image: val_tradPipeline_image, gt_image: val_gt_image})
+                                                   feed_dict={tradPipeline_image: val_tradPipeline_image, gt_image: val_gt_image})
 
         val_loss[ind] = (curr_val_loss)
 
@@ -499,6 +495,8 @@ for epoch in range(lastepoch, 4001):
     validation_loss.append(np.mean(val_loss[np.where(val_loss)]))
     print("Epoch: %d, Training Loss = %.3f, Validation Loss = %0.3f, Time=%.3f" % (
         epoch, training_loss[-1], validation_loss[-1], time.time() - st))
+    # training_loss.append(np.array(losses).mean())
+    # training_loss.append(losses)
 
     saver.save(sess, checkpoint_dir + 'model.ckpt')
 

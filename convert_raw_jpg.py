@@ -1,10 +1,6 @@
 from __future__ import division
 import numpy as np
 import rawpy
-import matplotlib.pyplot as plt
-import scipy.io
-import scipy.misc
-import matplotlib.pyplot as plt
 from PIL import Image
 import os
 import time
@@ -13,8 +9,8 @@ import glob
 gt_dir = './dataset/Sony/gt/'
 train_dir = './dataset/Sony/train/'
 
-png_gt = './png_images/gt/'
-png_train = './png_images/train/'
+png_gt = './dataset/jpg_images/gt/'
+png_train = './dataset/jpg_images/train/'
 
 gt_images_fns = glob.glob(gt_dir + '*.ARW')
 gt_images_ids = [int(os.path.basename(train_fn)[0:5])

@@ -38,12 +38,6 @@ if DEBUG == 1:
     train_ids = train_ids[0:5]
 
 
-def log10(x):
-    numerator = tf.log(x)
-    denominator = tf.log(tf.constant(10, dtype=numerator.dtype))
-    return numerator / denominator
-
-
 def lrelu(x):
     return tf.maximum(x * 0.2, x)
 
@@ -288,7 +282,6 @@ gt_image = tf.placeholder(tf.float32, [None, None, None, 3])
 
 out_image = network(in_image, tradPipeline_image)
 
-#G_loss_PSNR = tf.reduce_mean(20*log10(gt_image)-10*log10(tf.abs((out_image - gt_image))))
 G_loss_MSE = tf.reduce_mean(out_image - gt_image)
 G_loss_MAE = tf.reduce_mean(tf.abs(out_image - gt_image))
 G_loss = G_loss_MAE
